@@ -196,21 +196,23 @@ print("=" * 70)
 # configuration, this prevents the model from becoming huge.
 
 model = RandomForestRegressor(
-    n_estimators=100,
-    max_depth=15,
+    n_estimators=75,
+    max_depth=12,
     min_samples_leaf=2,
     random_state=42,
     n_jobs=-1,
     max_features="sqrt"
 )
 
+model_any = cast(Any, model)
+
 print("\nModel configuration:")
 print("  Algorithm: RandomForestRegressor")
-print("  Trees: 100")
-print("  Max depth: 15")
-print("  Min samples per leaf: 2")
-print("  Max features: sqrt")
-print("  Random state: 42")
+print(f"  Trees: {model_any.n_estimators}")
+print(f"  Max depth: {model_any.max_depth}")
+print(f"  Min samples per leaf: {model_any.min_samples_leaf}")
+print(f"  Max features: {model_any.max_features}")
+print(f"  Random state: {model_any.random_state}")
 print("  CPU workers: all available")
 
 

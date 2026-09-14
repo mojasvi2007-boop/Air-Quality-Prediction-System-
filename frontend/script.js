@@ -2,7 +2,7 @@
    AeroPredict - Frontend JavaScript
    ========================================================= */
 
-const API_URL = "http://127.0.0.1:8001";
+const API_URL = "https://air-quality-prediction-system-5.onrender.com";
 
 let map = null;
 let marker = null;
