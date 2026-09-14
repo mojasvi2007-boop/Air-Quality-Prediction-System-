@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>AeroPredict | Air Quality Intelligence</title>
+
+    <link
+        rel="stylesheet"
+        href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    >
+
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+<header class="navbar">
+    <div class="brand">
+        <div class="brand-icon">A</div>
+        <div class="brand-name">AeroPredict</div>
+    </div>
+
+    <div class="live-status">
+        <span></span>
+        LIVE AIR QUALITY
+    </div>
+</header>
+
+
+<main class="container">
+
+    <!-- HERO -->
+    <section class="hero">
+
+        <div class="hero-content">
+
+            <div class="eyebrow">
+                AI-POWERED AIR QUALITY INTELLIGENCE
+            </div>
+
+            <h1>
+                Know the air.<br>
+                <span>Before you step<br>outside.</span>
+            </h1>
+
+            <p class="hero-description">
+                AeroPredict combines live atmospheric data with a
+                Random Forest model to estimate current air quality
+                and predict what comes next.
+            </p>
+
+            <button id="locationBtn" class="location-button">
+                Detect My Location
+            </button>
+
+            <p id="status" class="status">
+                Get real-time air quality and forecasts for your area
+            </p>
+
+        </div>
+
+
+        <!-- ATMOSPHERE VISUAL -->
+        <div class="hero-visual">
+
+            <div class="orbit orbit-1"></div>
+            <div class="orbit orbit-2"></div>
+            <div class="orbit orbit-3"></div>
+
+            <div class="particle particle-1"></div>
+            <div class="particle particle-2"></div>
+            <div class="particle particle-3"></div>
+            <div class="particle particle-4"></div>
+            <div class="particle particle-5"></div>
+
+            <div class="air-circle">
+
+                <div class="cloud">
+                    <div class="cloud-main"></div>
+                    <div class="cloud-left"></div>
+                    <div class="cloud-right"></div>
+                </div>
+
+                <div class="air-lines">
+                    <span></span>
+                    <span></span>
+                </div>
+
+            </div>
+
+        </div>
+
+    </section>
+
+
+    <!-- CURRENT CONDITIONS -->
+    <section class="section">
+
+        <div class="section-label">
+            CURRENT CONDITIONS
+        </div>
+
+        <div class="conditions-grid">
+
+            <div class="location-card">
+
+                <div class="card-icon location-icon">
+                    <span>⌖</span>
+                </div>
+
+                <div>
+                    <h3 id="locationName">Your Location</h3>
+
+                    <p id="coordinates">
+                        --
+                    </p>
+
+                    <small id="accuracy">
+                        --
+                    </small>
+                </div>
+
+            </div>
+
+
+            <div class="condition-card">
+
+                <div class="card-icon temperature-icon">
+                    ♨
+                </div>
+
+                <div>
+                    <p>Temperature</p>
+                    <strong id="temperature">-- °C</strong>
+                </div>
+
+            </div>
+
+
+            <div class="condition-card">
+
+                <div class="card-icon humidity-icon">
+                    ◇
+                </div>
+
+                <div>
+                    <p>Humidity</p>
+                    <strong id="humidity">-- %</strong>
+                </div>
+
+            </div>
+
+
+            <div class="condition-card">
+
+                <div class="card-icon wind-icon">
+                    ≋
+                </div>
+
+                <div>
+                    <p>Wind Speed</p>
+                    <strong id="wind">-- km/h</strong>
+                </div>
+
+            </div>
+
+        </div>
+
+    </section>
+
+
+    <!-- AIR COMPOSITION -->
+    <section class="section">
+
+        <div class="section-label">
+            AIR COMPOSITION
+        </div>
+
+        <div class="pollution-grid">
+
+            <div class="pollution-card">
+                <p>PM2.5</p>
+                <strong id="pm25">--</strong>
+                <span>μg/m³</span>
+            </div>
+
+            <div class="pollution-card">
+                <p>PM10</p>
+                <strong id="pm10">--</strong>
+                <span>μg/m³</span>
+            </div>
+
+            <div class="pollution-card">
+                <p>NO₂</p>
+                <strong id="no2">--</strong>
+                <span>μg/m³</span>
+            </div>
+
+            <div class="pollution-card">
+                <p>O₃</p>
+                <strong id="o3">--</strong>
+                <span>μg/m³</span>
+            </div>
+
+            <div class="pollution-card">
+                <p>SO₂</p>
+                <strong id="so2">--</strong>
+                <span>μg/m³</span>
+            </div>
+
+            <div class="pollution-card">
+                <p>CO</p>
+                <strong id="co">--</strong>
+                <span>μg/m³</span>
+            </div>
+
+        </div>
+
+    </section>
+
+
+    <!-- AQI -->
+    <section class="aqi-section">
+
+        <div class="aqi-card">
+
+            <div>
+                <div class="section-label">
+                    AIR QUALITY INDEX
+                </div>
+
+                <h2>Current AQI</h2>
+
+                <p id="aqiAdvice">
+                    Detect your location to calculate air quality.
+                </p>
+            </div>
+
+            <div class="aqi-value-container">
+                <div id="aqiValue" class="aqi-value">
+                    --
+                </div>
+
+                <div id="aqiCategory" class="aqi-category">
+                    --
+                </div>
+            </div>
+
+        </div>
+
+    </section>
+
+
+    <!-- FORECAST -->
+    <section class="section">
+
+        <div class="section-label">
+            AI FORECAST
+        </div>
+
+        <h2 class="section-title">
+            What the model predicts
+        </h2>
+
+        <div class="forecast-grid">
+
+            <div class="forecast-card">
+                <p>~1 Hour</p>
+                <strong id="forecast1">--</strong>
+                <span id="forecast1Category">--</span>
+            </div>
+
+            <div class="forecast-card">
+                <p>~24 Hours</p>
+                <strong id="forecast24">--</strong>
+                <span id="forecast24Category">--</span>
+            </div>
+
+            <div class="forecast-card">
+                <p>~72 Hours</p>
+                <strong id="forecast72">--</strong>
+                <span id="forecast72Category">--</span>
+            </div>
+
+        </div>
+
+    </section>
+
+
+    <!-- MAP -->
+    <section class="section map-section">
+
+        <div class="section-label">
+            YOUR AREA
+        </div>
+
+        <div id="map"></div>
+
+    </section>
+
+</main>
+
+
+<footer>
+    AeroPredict · AI-powered air quality prediction
+</footer>
+
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script src="script.js"></script>
+
+</body>
+</html>
