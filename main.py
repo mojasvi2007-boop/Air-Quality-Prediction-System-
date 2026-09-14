@@ -6,6 +6,7 @@ from typing import Any, cast
 import joblib  # pyright: ignore[reportMissingTypeStubs]
 import pandas as pd
 import requests
+import time  # pyright: ignore[reportUnusedImport]
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -45,6 +46,8 @@ OPEN_METEO_AIR_QUALITY_URL = (
 NOMINATIM_URL = (
     "https://nominatim.openstreetmap.org/reverse"
 )
+WEATHER_CACHE: dict[tuple[float, float], dict[str, Any]] = {}
+WEATHER_CACHE_TTL = 600  # 10 minutes
 
 
 # ============================================================
@@ -464,37 +467,75 @@ def get_weather_forecast(
         "wind_speed_unit": "kmh"
     }
 
+    cache_key = (round(latitude, 3), round(longitude, 3))
+    now = time.time()
+
+    # Use cached weather data if it is less than 10 minutes old
+    cached: dict[str, Any] | None = WEATHER_CACHE.get(cache_key)
+
+    if cached and now - cached["timestamp"] < WEATHER_CACHE_TTL:
+        return cached["data"]
+
+    # Request fresh weather data, retrying if Open-Meteo rate-limits us
     try:
+        response: requests.Response | None = None
 
-        response = requests.get(
-            OPEN_METEO_WEATHER_URL,
-            params=params,
-            headers=REQUEST_HEADERS,
-            timeout=20
-        )
+        for attempt in range(3):
+            response = requests.get(
+                OPEN_METEO_WEATHER_URL,
+                params=params,
+                headers=REQUEST_HEADERS,
+                timeout=20
+            )
 
-        response.raise_for_status()
+            if response.status_code == 429:
+                if attempt < 2:
+                    retry_after = response.headers.get("Retry-After")
+
+                    if retry_after:
+                        try:
+                            delay = min(int(retry_after), 10)
+                        except ValueError:
+                            delay = 2 ** attempt
+                    else:
+                        delay = 2 ** attempt
+
+                    time.sleep(delay)
+                    continue
+
+                raise HTTPException(
+                    status_code=503,
+                    detail=(
+                        "Weather service is temporarily rate-limited. "
+                        "Please try again in a few minutes."
+                    )
+                )
+
+            response.raise_for_status()
+            break
+
+        if response is None:
+            raise ValueError("Unable to retrieve weather forecast.")
+
+        data = response.json()
 
     except requests.RequestException as error:
-
         raise ValueError(
             "Unable to retrieve weather forecast: "
             f"{error}"
         ) from error
 
-    data = response.json()
-
     if "hourly" not in data:
-
-        raise ValueError(
-            "Weather API returned no hourly data."
-        )
+        raise ValueError("Weather API returned no hourly data.")
 
     if "daily" not in data:
+        raise ValueError("Weather API returned no daily data.")
 
-        raise ValueError(
-            "Weather API returned no daily data."
-        )
+    # Store successful response for 10 minutes
+    WEATHER_CACHE[cache_key] = {
+        "timestamp": time.time(),
+        "data": data
+    }
 
     return data
 
