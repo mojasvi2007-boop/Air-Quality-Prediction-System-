@@ -1,14 +1,15 @@
 import os
+import time
 from datetime import datetime, timedelta
 from functools import lru_cache
 from typing import Any, cast
 
-import joblib  # pyright: ignore[reportMissingTypeStubs]
+import joblib  # type: ignore[reportMissingTypeStubs]
 import pandas as pd
 import requests
-import time  # pyright: ignore[reportUnusedImport]
 
 from fastapi import FastAPI, HTTPException, Query
+from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 
 
@@ -46,7 +47,17 @@ OPEN_METEO_AIR_QUALITY_URL = (
 NOMINATIM_URL = (
     "https://nominatim.openstreetmap.org/reverse"
 )
-WEATHER_CACHE: dict[tuple[float, float], dict[str, Any]] = {}
+
+
+# ============================================================
+# WEATHER CACHE
+# ============================================================
+
+WEATHER_CACHE: dict[
+    tuple[float, float],
+    dict[str, Any]
+] = {}
+
 WEATHER_CACHE_TTL = 600  # 10 minutes
 
 
@@ -95,9 +106,6 @@ app = FastAPI(
 # CORS
 # ============================================================
 
-# Required because the frontend may be running through
-# VS Code Live Server on a different port.
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -123,35 +131,52 @@ def load_model() -> Any:
     print("LOADING AEROPREDICT MODEL")
     print("=" * 70)
 
-    print(f"\nModel path:")
+    print("\nModel path:")
     print(MODEL_PATH)
 
-    # The model was saved using joblib with compression.
-    # pyright can flag joblib.load() as a partially unknown member type,
-    # so cast the result to Any before use.
-    model = cast(Any, joblib.load(MODEL_PATH)) # pyright: ignore[reportUnknownMemberType, reportUnnecessaryCast]
+    load_func: Any = getattr(joblib, "load")
+    model = load_func(MODEL_PATH)
 
     print("\nModel loaded successfully.")
 
     if hasattr(model, "n_estimators"):
-        n_estimators = cast(Any, getattr(model, "n_estimators", None))
-        print(f"Trees: {n_estimators}")
+        print(
+            f"Trees: "
+            f"{getattr(model, 'n_estimators', None)}"
+        )
 
     if hasattr(model, "max_depth"):
-        max_depth = cast(Any, getattr(model, "max_depth", None))
-        print(f"Maximum depth: {max_depth}")
+        print(
+            f"Maximum depth: "
+            f"{getattr(model, 'max_depth', None)}"
+        )
 
     if hasattr(model, "min_samples_leaf"):
-        min_samples_leaf = cast(Any, getattr(model, "min_samples_leaf", None))
-        print(f"Minimum samples per leaf: {min_samples_leaf}")
+        print(
+            f"Minimum samples per leaf: "
+            f"{getattr(model, 'min_samples_leaf', None)}"
+        )
 
     if hasattr(model, "n_features_in_"):
-        n_features_in = cast(Any, getattr(model, "n_features_in_", None))
-        print(f"Number of features: {n_features_in}")
+        print(
+            f"Number of features: "
+            f"{getattr(model, 'n_features_in_', None)}"
+        )
 
     if hasattr(model, "feature_names_in_"):
-        feature_names = cast(Any, getattr(model, "feature_names_in_", None))
-        print("Expected features: " + ", ".join(cast(list[str], feature_names)))
+
+        feature_names = getattr(
+            model,
+            "feature_names_in_",
+            []
+        )
+
+        print(
+            "Expected features: "
+            + ", ".join(
+                cast(list[str], feature_names)
+            )
+        )
 
     return model
 
@@ -326,50 +351,12 @@ def get_health_guidance(
 
 
 # ============================================================
-# GET CURRENT AIR QUALITY
+# PARSE AIR QUALITY RESPONSE
 # ============================================================
 
-def get_current_air_quality(
-    latitude: float,
-    longitude: float
+def parse_air_quality_response(
+    data: dict[str, Any]
 ) -> dict[str, Any]:
-
-    params: dict[str, Any] = {
-        "latitude": latitude,
-        "longitude": longitude,
-
-        "current": (
-            "us_aqi,"
-            "pm2_5,"
-            "pm10,"
-            "carbon_monoxide,"
-            "nitrogen_dioxide,"
-            "sulphur_dioxide,"
-            "ozone"
-        ),
-
-        "timezone": "auto"
-    }
-
-    try:
-
-        response = requests.get(
-            OPEN_METEO_AIR_QUALITY_URL,
-            params=params,
-            headers=REQUEST_HEADERS,
-            timeout=20
-        )
-
-        response.raise_for_status()
-
-    except requests.RequestException as error:
-
-        raise ValueError(
-            "Unable to retrieve air quality data: "
-            f"{error}"
-        ) from error
-
-    data = response.json()
 
     current = data.get(
         "current",
@@ -430,6 +417,57 @@ def get_current_air_quality(
 
 
 # ============================================================
+# GET CURRENT AIR QUALITY
+# ============================================================
+
+def get_current_air_quality(
+    latitude: float,
+    longitude: float
+) -> dict[str, Any]:
+
+    params: dict[str, Any] = {
+
+        "latitude": latitude,
+
+        "longitude": longitude,
+
+        "current": (
+            "us_aqi,"
+            "pm2_5,"
+            "pm10,"
+            "carbon_monoxide,"
+            "nitrogen_dioxide,"
+            "sulphur_dioxide,"
+            "ozone"
+        ),
+
+        "timezone": "auto"
+    }
+
+    try:
+
+        response = requests.get(
+            OPEN_METEO_AIR_QUALITY_URL,
+            params=params,
+            headers=REQUEST_HEADERS,
+            timeout=20
+        )
+
+        response.raise_for_status()
+
+    except requests.RequestException as error:
+
+        raise ValueError(
+            "Unable to retrieve air quality data: "
+            f"{error}"
+        ) from error
+
+    data = response.json()
+
+    return parse_air_quality_response(data)
+
+
+# ============================================================
 # GET WEATHER FORECAST
 # ============================================================
 
@@ -444,7 +482,6 @@ def get_weather_forecast(
 
         "longitude": longitude,
 
-        # Hourly features required by the model
         "hourly": (
             "temperature_2m,"
             "relative_humidity_2m,"
@@ -453,7 +490,6 @@ def get_weather_forecast(
             "wind_speed_10m"
         ),
 
-        # Daily features required by the model
         "daily": (
             "temperature_2m_max,"
             "temperature_2m_min,"
@@ -467,20 +503,31 @@ def get_weather_forecast(
         "wind_speed_unit": "kmh"
     }
 
-    cache_key = (round(latitude, 3), round(longitude, 3))
+    cache_key = (
+        round(latitude, 3),
+        round(longitude, 3)
+    )
+
     now = time.time()
 
-    # Use cached weather data if it is less than 10 minutes old
-    cached: dict[str, Any] | None = WEATHER_CACHE.get(cache_key)
+    cached = WEATHER_CACHE.get(
+        cache_key
+    )
 
-    if cached and now - cached["timestamp"] < WEATHER_CACHE_TTL:
+    if (
+        cached
+        and now - cached["timestamp"]
+        < WEATHER_CACHE_TTL
+    ):
+
         return cached["data"]
 
-    # Request fresh weather data, retrying if Open-Meteo rate-limits us
     try:
+
         response: requests.Response | None = None
 
         for attempt in range(3):
+
             response = requests.get(
                 OPEN_METEO_WEATHER_URL,
                 params=params,
@@ -489,49 +536,75 @@ def get_weather_forecast(
             )
 
             if response.status_code == 429:
+
                 if attempt < 2:
-                    retry_after = response.headers.get("Retry-After")
+
+                    retry_after = (
+                        response.headers.get(
+                            "Retry-After"
+                        )
+                    )
 
                     if retry_after:
+
                         try:
-                            delay = min(int(retry_after), 10)
+                            delay = min(
+                                int(retry_after),
+                                10
+                            )
+
                         except ValueError:
+
                             delay = 2 ** attempt
+
                     else:
+
                         delay = 2 ** attempt
 
                     time.sleep(delay)
+
                     continue
 
                 raise HTTPException(
                     status_code=503,
                     detail=(
-                        "Weather service is temporarily rate-limited. "
-                        "Please try again in a few minutes."
+                        "Weather service is temporarily "
+                        "rate-limited. Please try again "
+                        "in a few minutes."
                     )
                 )
 
             response.raise_for_status()
+
             break
 
         if response is None:
-            raise ValueError("Unable to retrieve weather forecast.")
+
+            raise ValueError(
+                "Unable to retrieve weather forecast."
+            )
 
         data = response.json()
 
     except requests.RequestException as error:
+
         raise ValueError(
             "Unable to retrieve weather forecast: "
             f"{error}"
         ) from error
 
     if "hourly" not in data:
-        raise ValueError("Weather API returned no hourly data.")
+
+        raise ValueError(
+            "Weather API returned no hourly data."
+        )
 
     if "daily" not in data:
-        raise ValueError("Weather API returned no daily data.")
 
-    # Store successful response for 10 minutes
+        raise ValueError(
+            "Weather API returned no daily data."
+        )
+
     WEATHER_CACHE[cache_key] = {
         "timestamp": time.time(),
         "data": data
@@ -554,7 +627,10 @@ def build_weather_dataframe(
 
     hourly_df = pd.DataFrame({
 
-        "time": hourly.get("time", []),
+        "time": hourly.get(
+            "time",
+            []
+        ),
 
         "T": hourly.get(
             "temperature_2m",
@@ -622,11 +698,7 @@ def build_weather_dataframe(
             "Daily weather data is empty."
         )
 
-    # Convert timestamps
-    hourly_df["datetime"] = cast(
-        Any,
-        pd
-    ).to_datetime(
+    hourly_df["datetime"] = pd.to_datetime( # pyright: ignore[reportUnknownMemberType]
         hourly_df["time"]
     )
 
@@ -635,14 +707,12 @@ def build_weather_dataframe(
         .dt.strftime("%Y-%m-%d")
     )
 
-    # Merge daily max/min/wind values
     hourly_df = hourly_df.merge(
         daily_df,
         on="date",
         how="left"
     )
 
-    # Keep exactly the model features
     required = [
         "datetime",
         "T",
@@ -659,15 +729,11 @@ def build_weather_dataframe(
         required
     ].copy()
 
-    # Convert model columns to numeric
     for column in FEATURES:
 
-        hourly_df[column] = cast(
-            Any,
-            pd
-        ).to_numeric(
+        hourly_df[column] = pd.to_numeric( # pyright: ignore[reportUnknownMemberType]
             hourly_df[column],
-            errors="coerce"
+            errors="coerce"  # pyright: ignore[reportUnknownMemberType]
         )
 
     return hourly_df
@@ -688,10 +754,6 @@ def get_target_weather_row(
             "No weather data available."
         )
 
-    # Remove timezone information for comparison
-    # because Open-Meteo returns local timestamps
-    # when timezone=auto is used.
-
     target_naive = target_datetime.replace(
         tzinfo=None,
         minute=0,
@@ -706,7 +768,6 @@ def get_target_weather_row(
         .dt.tz_localize(None)
     )
 
-    # Exact hour first
     exact = weather_df[
         weather_df["comparison_time"]
         == target_naive
@@ -716,7 +777,6 @@ def get_target_weather_row(
 
         return exact.iloc[0]
 
-    # If exact hour is unavailable, use nearest hour.
     differences = (
         weather_df["comparison_time"]
         - target_naive
@@ -724,9 +784,9 @@ def get_target_weather_row(
 
     nearest_index = differences.idxmin()
 
-    nearest_row = weather_df.loc[[nearest_index]].iloc[0]
-
-    return nearest_row
+    return weather_df.loc[
+        [nearest_index]
+    ].iloc[0]
 
 
 # ============================================================
@@ -746,35 +806,51 @@ def build_model_input(
         )
 
         if value is None or value is pd.NA:
+
             raise ValueError(
                 f"Missing model feature: {feature}"
             )
 
-        if isinstance(value, complex):
+        if isinstance(
+            value,
+            complex
+        ):
+
             raise ValueError(
                 f"Missing model feature: {feature}"
             )
 
-        if isinstance(value, (float, int)):
+        if isinstance(
+            value,
+            (float, int)
+        ):
+
             if value != value:
+
                 raise ValueError(
                     f"Missing model feature: {feature}"
                 )
 
         try:
-            values[feature] = float(value)
-        except (TypeError, ValueError):
+
+            values[feature] = float(
+                value
+            )
+
+        except (
+            TypeError,
+            ValueError
+        ):
+
             raise ValueError(
                 f"Missing model feature: {feature}"
             ) from None
 
-    dataframe = pd.DataFrame(
+    return pd.DataFrame(
         [values],
         columns=FEATURES,
         dtype=float
     )
-
-    return dataframe
 
 
 # ============================================================
@@ -797,10 +873,11 @@ def predict_for_datetime(
     )
 
     prediction = float(
-        model.predict(model_input)[0]
+        model.predict(
+            model_input
+        )[0]
     )
 
-    # AQI cannot be negative.
     prediction = max(
         0.0,
         prediction
@@ -891,7 +968,10 @@ def reverse_geocode(
                 part
                 and part not in parts
             ):
-                parts.append(part)
+
+                parts.append(
+                    part
+                )
 
         name = ", ".join(
             parts
@@ -932,7 +1012,9 @@ def reverse_geocode(
 
 def get_predictions(
     latitude: float,
-    longitude: float
+    longitude: float,
+    weather_data: dict[str, Any],
+    air_data: dict[str, Any]
 ) -> dict[str, Any]:
 
     # --------------------------------------------------------
@@ -942,29 +1024,15 @@ def get_predictions(
     model = load_model()
 
     # --------------------------------------------------------
-    # LIVE AIR QUALITY
+    # BUILD WEATHER DATAFRAME
     # --------------------------------------------------------
-
-    air_data = get_current_air_quality(
-        latitude,
-        longitude
-    )
-
-    # --------------------------------------------------------
-    # WEATHER FORECAST
-    # --------------------------------------------------------
-
-    weather_data = get_weather_forecast(
-        latitude,
-        longitude
-    )
 
     weather_df = build_weather_dataframe(
         weather_data
     )
 
     # --------------------------------------------------------
-    # DETERMINE CURRENT TIME
+    # CURRENT WEATHER TIME
     # --------------------------------------------------------
 
     current_weather_time = (
@@ -1098,10 +1166,6 @@ def get_predictions(
 
         "predictions": {
 
-            # =================================================
-            # LOCATION
-            # =================================================
-
             "location": {
 
                 "name": location["name"],
@@ -1136,18 +1200,13 @@ def get_predictions(
                 )
             },
 
-            # =================================================
-            # TIMESTAMP
-            # =================================================
-
             "updated_at": (
                 air_data.get("timestamp")
-                or weather_data.get("current", {}).get("time")
+                or weather_data.get(
+                    "current",
+                    {}
+                ).get("time")
             ),
-
-            # =================================================
-            # AQI
-            # =================================================
 
             "aqi": {
 
@@ -1203,15 +1262,7 @@ def get_predictions(
                 }
             },
 
-            # =================================================
-            # HEALTH
-            # =================================================
-
             "health_guidance": health_guidance,
-
-            # =================================================
-            # ENVIRONMENT
-            # =================================================
 
             "environment": {
 
@@ -1258,10 +1309,6 @@ def get_predictions(
                 )
             },
 
-            # =================================================
-            # POLLUTANTS
-            # =================================================
-
             "pollutants": {
 
                 "pm2_5": round(
@@ -1295,10 +1342,6 @@ def get_predictions(
                 )
             },
 
-            # =================================================
-            # AI INFORMATION
-            # =================================================
-
             "ai_metadata": {
 
                 "model": (
@@ -1329,15 +1372,9 @@ def get_predictions(
                 )
             },
 
-            # =================================================
-            # WEATHER METADATA
-            # =================================================
-
             "weather_metadata": {
 
-                "source": (
-                    "Open-Meteo"
-                ),
+                "source": "Open-Meteo",
 
                 "source_type": (
                     "Location-specific "
@@ -1362,11 +1399,15 @@ def get_predictions(
 def root() -> dict[str, Any]:
 
     return {
+
         "success": True,
+
         "application": "AeroPredict",
+
         "message": (
             "AeroPredict API is running."
         ),
+
         "version": "1.0.0"
     }
 
@@ -1412,22 +1453,30 @@ def health_check() -> dict[str, Any]:
 
 
 # ============================================================
+# PREDICTION REQUEST MODEL
+# ============================================================
+
+class PredictionRequest(BaseModel):
+
+    latitude: float
+
+    longitude: float
+
+    weather_data: dict[str, Any]
+
+    air_data: dict[str, Any]
+
+
+# ============================================================
 # PREDICTION ENDPOINT
 # ============================================================
 
 @app.get("/api/predict")
 def predict(
-
-    latitude: float = Query(
-        ...,
-        description="Latitude of requested location"
-    ),
-
-    longitude: float = Query(
-        ...,
-        description="Longitude of requested location"
-    )
-):
+    latitude: float = Query(..., description="Latitude of the requested location"),
+    longitude: float = Query(..., description="Longitude of the requested location")
+) -> dict[str, Any]:
+    
 
     # --------------------------------------------------------
     # VALIDATE COORDINATES
@@ -1459,9 +1508,16 @@ def predict(
 
     try:
 
+        air_data = get_current_air_quality(
+            latitude,
+            longitude
+        )
+
         return get_predictions(
             latitude=latitude,
-            longitude=longitude
+            longitude=longitude,
+            weather_data = get_weather_forecast(latitude, longitude),
+            air_data=air_data
         )
 
     except FileNotFoundError as error:
@@ -1513,10 +1569,16 @@ if __name__ == "__main__":
     import uvicorn
 
     print("\n" + "=" * 70)
-    print("AEROPREDICT API SERVER")
+
+    print(
+        "AEROPREDICT API SERVER"
+    )
+
     print("=" * 70)
 
-    print("\nStarting FastAPI server...")
+    print(
+        "\nStarting FastAPI server..."
+    )
 
     print(
         "\nAPI:"
